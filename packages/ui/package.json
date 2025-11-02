@@ -1,0 +1,28 @@
+{
+  "name": "@corecast/ui",
+  "version": "0.1.0",
+  "private": false,
+  "description": "Core Cast SDR component library",
+  "main": "src/index.ts",
+  "module": "./dist/index.mjs",
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "build": "tsup src/index.ts --format cjs,esm --dts --clean",
+    "dev": "tsup src/index.ts --format cjs,esm --dts --clean --watch",
+    "lint": "echo \"Linting @corecast/ui...\""
+  },
+  "dependencies": {
+    "react": "^18.0.0"
+  },
+  "devDependencies": {
+    "@types/react": "^19.2.2",
+    "react": "^19.2.0",
+    "tsup": "latest",
+    "typescript": "latest"
+  },
+  "peerDependencies": {
+    "react": ">=18.0.0"
+  },
+  "type": "module"
+
+}
