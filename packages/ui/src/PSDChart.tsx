@@ -10,10 +10,11 @@ interface PSDChartProps {
   bwHz?       : number;
   spanMinHz?  : number;
   spanMaxHz?  : number;
+  width?: number; // Logical width
 }
 
 /* ───────── tweakables ───────── */
-const WIDTH  = 1000;
+// const WIDTH  = 1000; // Now a prop
 const HEIGHT = 250;
 const GRID_SPACING = 45;
 const SMOOTH_FRAMES = 8;
@@ -31,7 +32,7 @@ const COLORS = {
 
 /* ───────────────────────────────────────────── */
 export default function PSDChart({
-  inputData, tuneHz, bwHz, spanMinHz, spanMaxHz,
+  inputData, tuneHz, bwHz, spanMinHz, spanMaxHz, width = 1024
 }: PSDChartProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
@@ -39,6 +40,7 @@ export default function PSDChart({
   const smoothBuf = useRef<Float32Array | null>(null);
   const peakBuf   = useRef<Float32Array | null>(null);
 
+  /* keep overlay params fresh */
   const overlayRef = useRef({ tuneHz, bwHz, spanMinHz, spanMaxHz });
   useEffect(() => { overlayRef.current = { tuneHz, bwHz, spanMinHz, spanMaxHz }; },
             [tuneHz, bwHz, spanMinHz, spanMaxHz]);
@@ -46,71 +48,63 @@ export default function PSDChart({
   const ALPHA = 1 / SMOOTH_FRAMES;
   const rafId = useRef<number | null>(null);
 
-  // ▼▼▼ FIX: Initialize the grid ref, but don't create it yet ▼▼▼
+  /* ── static grid drawn once ── */
   const gridCanvas = useRef<HTMLCanvasElement | null>(null);
+
+  const initializeBuffers = (dataLength: number) => {
+    if (dataLength === 0 || (latestBuf.current && latestBuf.current.length === dataLength)) {
+      return;
+    }
+    latestBuf.current = new Float32Array(dataLength);
+    smoothBuf.current = new Float32Array(dataLength);
+    peakBuf.current   = new Float32Array(dataLength);
+  };
 
   /* ── mount: start animation ── */
   useEffect(() => {
-    // This code now runs ONLY in the browser
-
-    // ▼▼▼ FIX: Move the grid canvas creation logic INSIDE here ▼▼▼
+    // Moved grid creation here
     if (!gridCanvas.current) {
-      const g = document.createElement('canvas'); // 'document' is safe here
-      g.width = WIDTH; g.height = HEIGHT;
+      const g = document.createElement('canvas');
+      g.width = width; g.height = HEIGHT;
       const gCtx = g.getContext('2d')!;
       gCtx.strokeStyle = COLORS.GRID;
       gCtx.lineWidth = 1;
-      for (let x = 0; x <= WIDTH; x += GRID_SPACING) {
+      for (let x = 0; x <= width; x += GRID_SPACING) {
         gCtx.beginPath(); gCtx.moveTo(x, 0); gCtx.lineTo(x, HEIGHT); gCtx.stroke();
       }
       for (let y = 0; y <= HEIGHT; y += GRID_SPACING) {
-        gCtx.beginPath(); gCtx.moveTo(0, y); gCtx.lineTo(WIDTH, y); gCtx.stroke();
+        gCtx.beginPath(); gCtx.moveTo(0, y); gCtx.lineTo(width, y); gCtx.stroke();
       }
-      gridCanvas.current = g; // Store the pre-rendered grid
+      gridCanvas.current = g;
     }
-    // ▲▲▲ End of moved code ▲▲▲
 
     const cv = canvasRef.current!;
-    cv.width = WIDTH; cv.height = HEIGHT;
+    cv.width = width; cv.height = HEIGHT;
     const ctx = cv.getContext('2d')!;
 
-    // Initialize buffers
-    latestBuf.current = new Float32Array(inputData.length);
-    smoothBuf.current = new Float32Array(inputData.length);
-    peakBuf.current   = new Float32Array(inputData.length);
+    initializeBuffers(inputData.length);
 
     const loop = () => {
-      // Ensure buffers are ready before stepping/drawing
-      if (latestBuf.current && smoothBuf.current && peakBuf.current) {
-        step();
-        draw(ctx);
-      }
+      step();
+      draw(ctx);
       rafId.current = requestAnimationFrame(loop);
     };
     rafId.current = requestAnimationFrame(loop);
-
     return () => {
-      if (rafId.current) {
-        cancelAnimationFrame(rafId.current);
-      }
+      if(rafId.current) cancelAnimationFrame(rafId.current);
     };
-
-  }, []); // Empty array means this runs once on mount (on the client)
+  }, [width, inputData.length]); // Re-run if width or data length changes
 
   /* ── copy newest frame ── */
   useEffect(() => {
+    initializeBuffers(inputData.length);
     if (!latestBuf.current) return;
-
-    if (latestBuf.current.length !== inputData.length) {
-      latestBuf.current = new Float32Array(inputData.length);
-      smoothBuf.current = new Float32Array(inputData.length);
-      peakBuf.current   = new Float32Array(inputData.length);
-    }
     latestBuf.current.set(inputData);
   }, [inputData]);
 
   /* ── smoothing & peaks ── */
   const step = () => {
+    if (!latestBuf.current || !smoothBuf.current || !peakBuf.current) return;
     const src  = latestBuf.current!;
     const dst  = smoothBuf.current!;
     const peak = peakBuf.current!;
@@ -122,16 +116,12 @@ export default function PSDChart({
 
   /* ── draw everything ── */
   const draw = (ctx: CanvasRenderingContext2D) => {
-    ctx.clearRect(0, 0, WIDTH, HEIGHT);
+    ctx.clearRect(0, 0, width, HEIGHT);
+    ctx.drawImage(gridCanvas.current!, 0, 0);
 
-    // Draw the pre-rendered grid canvas
-    if (gridCanvas.current) {
-      ctx.drawImage(gridCanvas.current, 0, 0);
-    }
-
-    const data = smoothBuf.current!;
-    const peak = peakBuf.current!;
-    if (!data || !data.length) return;
+    const data = smoothBuf.current;
+    const peak = peakBuf.current;
+    if (!data || !data.length || !peak) return;
 
     let min = data[0], max = data[0];
     for (let i = 1; i < data.length; i++) {
@@ -139,17 +129,19 @@ export default function PSDChart({
       if (data[i] > max) max = data[i];
     }
     const range  = Math.max(1e-3, max - min);
-    const xScale = WIDTH / (data.length - 1);
+
+    // ▼▼▼ THIS IS THE KEY (FROM YOUR OLD CODE) ▼▼▼
+    // The X scale is based on stretching the *data length* to the *canvas width*
+    const xScale = width / (data.length - 1);
 
     /* ---- filled PSD ---- */
     ctx.beginPath();
     ctx.moveTo(0, HEIGHT);
     for (let i = 0; i < data.length; i++) {
       const y = HEIGHT - ((data[i] - min) / range) * HEIGHT;
-      if (i === 0) ctx.lineTo(i * xScale, y);
-      else         ctx.lineTo(i * xScale, y);
+      ctx.lineTo(i * xScale, y);
     }
-    ctx.lineTo(WIDTH, HEIGHT);
+    ctx.lineTo(width, HEIGHT);
     ctx.closePath();
 
     const grad = ctx.createLinearGradient(0, 0, 0, HEIGHT);
@@ -187,16 +179,16 @@ export default function PSDChart({
       spanMinHz !== undefined && spanMaxHz !== undefined &&
       spanMaxHz > spanMinHz && bwHz > 0
     ) {
-      const pxPerHz = WIDTH / (spanMaxHz - spanMinHz);
+      // This logic is what "zooms" the overlay.
+      // It calculates pixels based on frequency, not bin index.
+      const pxPerHz = width / (spanMaxHz - spanMinHz);
       const boxX    = (tuneHz - bwHz / 2 - spanMinHz) * pxPerHz;
       const boxW    = bwHz * pxPerHz;
-      const centerX = boxX + boxW / 2;
+      const centerX = (tuneHz - spanMinHz) * pxPerHz; // Center line based on freq
 
-      /* translucent background */
       ctx.fillStyle = COLORS.OVER_FILL;
       ctx.fillRect(boxX, 0, boxW, HEIGHT);
 
-      /* solid vertical centre line */
       ctx.strokeStyle = COLORS.CENTER_LINE;
       ctx.lineWidth = 2;
       ctx.beginPath();
@@ -206,12 +198,13 @@ export default function PSDChart({
     }
   };
 
+  // Use inline style for width
   return (
-    <div className="relative w-full overflow-hidden">
+    <div style={{ position: 'relative', width: '100%', overflow: 'hidden' }}>
       <canvas
         ref={canvasRef}
-        className="block w-full h-[250px]"
-        width={WIDTH}
+        style={{ display: 'block', width: '100%', height: '250px' }}
+        width={width}
         height={HEIGHT}
       />
     </div>
