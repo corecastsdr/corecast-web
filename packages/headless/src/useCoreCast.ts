@@ -1,5 +1,4 @@
 // packages/headless/src/useCoreCast.ts
-
 /* eslint-disable react-hooks/exhaustive-deps */
 import { useState, useRef, useEffect } from 'react';
 import { type ClientSettings, type WaterfallSettings } from './types';
@@ -12,11 +11,12 @@ export interface CoreCastOptions {
     initialSpan: { min: number; max: number };
     initialSettings: ClientSettings;
     initialWaterfallSettings: WaterfallSettings;
+    onAudioChunk?: (pcm: Float32Array) => void; // <-- 1. ADD THIS LINE
 }
 
 /**
  * The main headless hook for the Core Cast SDR client.
- * Manages WebSockets, AudioContext, and state. (NO RECORDING)
+ * Manages WebSockets, AudioContext, and state.
  */
 export function useCoreCast({
     audioUrl,
@@ -24,11 +24,12 @@ export function useCoreCast({
     initialSpan,
     initialSettings,
     initialWaterfallSettings,
+    onAudioChunk, // <-- 2. GET THE PROP
 }: CoreCastOptions) {
     /* ▼▼▼ Audio ▼▼▼ */
     const [volume, setVolume] = useState(30);
     const [audioDb, setAudioDb] = useState(-120);
-    const [isPlaying, setIsPlaying] = useState(false); // Replaces 'wsOpen'
+    const [isPlaying, setIsPlaying] = useState(false);
 
     /* ▼▼▼ Audio Context ▼▼▼ */
     const audioWS = useRef<WebSocket | null>(null);
@@ -39,13 +40,12 @@ export function useCoreCast({
     /* ▼▼▼ Waterfall / Span ▼▼▼ */
     const wfWS = useRef<WebSocket | null>(null);
     const [span, setSpan] = useState(initialSpan);
-    const [latestLine, setLatestLine] = useState<number[]>([]); // For PSD and Waterfall
+    const [latestLine, setLatestLine] = useState<number[]>([]);
 
     /* ▼▼▼ Settings ▼▼▼ */
     const [clientSettings, setClientSettings] = useState<ClientSettings>(initialSettings);
     const [waterfallSettings, setWaterfallSettings] = useState<WaterfallSettings>(initialWaterfallSettings);
 
-    // --- Helper: scheduleBuffer (Copied from sdr.tsx) ---
     function scheduleBuffer(ctx: AudioContext, pcm: Float32Array) {
         const safePCM = new Float32Array(pcm);
         const buf = ctx.createBuffer(1, safePCM.length, RATE);
@@ -62,7 +62,6 @@ export function useCoreCast({
         timelineRef.current += safePCM.length / RATE;
     }
 
-    // --- Helper: ensureGain (Copied from sdr.tsx) ---
     function ensureGain() {
         const ctx = ctxRef.current!;
         if (!gainRef.current) {
@@ -107,17 +106,19 @@ export function useCoreCast({
             if (typeof ev.data === 'string') return;
             const pcmF32 = new Float32Array(ev.data);
 
-            // 1. Push to playback queue
+            // <-- 3. ADD THIS LINE
+            if (onAudioChunk) {
+                onAudioChunk(pcmF32);
+            }
+
             queue.push(pcmF32);
 
-            // 2. Update level meter
             let sum = 0;
             for (let i = 0; i < pcmF32.length; i++) sum += pcmF32[i] * pcmF32[i];
             const db = 10 * Math.log10(sum / pcmF32.length + 1e-12);
             levelSmooth = levelSmooth * 0.9 + db * 0.1;
             setAudioDb(levelSmooth);
 
-            // 3. Start pump
             if (!pumpOn && queue.length * 0.02 >= PREBUF_SEC) {
                 pumpOn = true;
                 pump();
@@ -127,7 +128,7 @@ export function useCoreCast({
     }
 
     async function sendTune() {
-        openAudioWS(); // Will no-op if already open
+        openAudioWS();
         if (!audioWS.current) return;
         if (audioWS.current.readyState === WebSocket.CONNECTING) {
             await new Promise<void>((res) => audioWS.current!.addEventListener('open', () => res(), { once: true }));
@@ -146,8 +147,6 @@ export function useCoreCast({
         ws.onmessage = (ev) => {
             const pkt = JSON.parse(ev.data);
             if (pkt.type === 'waterfall') {
-                // This is the *only* waterfall state we need to set.
-                // Your efficient components handle the rest.
                 setLatestLine(pkt.data);
             }
         };
@@ -156,7 +155,7 @@ export function useCoreCast({
     }
 
     async function sendSpan() {
-        openWfWS(); // Will no-op if already open
+        openWfWS();
         if (!wfWS.current) return;
         if (wfWS.current.readyState === WebSocket.CONNECTING) {
             await new Promise<void>((res) => wfWS.current!.addEventListener('open', () => res(), { once: true }));
@@ -185,37 +184,31 @@ export function useCoreCast({
     }
 
     /* ── Effects to Sync State ─────────────────────────── */
-
-    // Send 'tune' when settings change (if playing)
     useEffect(() => {
         if (isPlaying) {
             sendTune();
         }
     }, [clientSettings, isPlaying]);
 
-    // Send 'span' when span changes
     useEffect(() => {
         sendSpan();
     }, [span]);
 
-    // Update audio gain when volume changes
     useEffect(() => {
         if (gainRef.current) {
             gainRef.current.gain.value = volume / 100;
         }
     }, [volume]);
 
-    // Open/Close WF socket on mount/unmount
     useEffect(() => {
         openWfWS();
         return () => {
             wfWS.current?.close();
         };
-    }, [waterfallUrl]); // Only runs on mount
+    }, [waterfallUrl]);
 
     // --- Return the Public API ---
     return {
-        // State
         isPlaying,
         audioDb,
         volume,
@@ -223,8 +216,6 @@ export function useCoreCast({
         clientSettings,
         waterfallSettings,
         latestLine,
-
-        // Actions
         play,
         stop,
         setVolume,

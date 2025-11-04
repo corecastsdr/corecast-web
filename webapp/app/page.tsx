@@ -70,7 +70,6 @@ export default function HomePage() {
         },
         controlGroup: {
             display: 'flex',
-            // ▼▼▼ FIX: Added 'as const' as requested ▼▼▼
             flexDirection: 'column' as const,
         },
         label: {
@@ -96,10 +95,9 @@ export default function HomePage() {
             fontSize: '14px',
         },
         meter: {
-            // ▼▼▼ FIX: Use a fixed-width and center it ▼▼▼
-            gridColumn: '1 / -1', // Span full width of grid container
-            width: '400px', // Set a "smaller" width
-            margin: '0 auto', // Center the block
+            gridColumn: '1 / -1',
+            width: '400px',
+            margin: '0 auto',
             marginBottom: '10px',
         },
         toggleGroup: {
@@ -169,8 +167,9 @@ export default function HomePage() {
                                 bwHz={clientSettings.bw}
                                 tuneHz={clientSettings.freq}
                                 inputData={latestLine}
-                                totalMinHz={TOTAL_MIN}
-                                totalMaxHz={TOTAL_MAX}
+                                // ▼▼▼ FIX: REMOVED THESE TWO LINES ▼▼▼
+                                // totalMinHz={TOTAL_MIN}
+                                // totalMaxHz={TOTAL_MAX}
                             />
                         </div>
                     )}
@@ -223,7 +222,7 @@ export default function HomePage() {
                             minDb={-80}
                             maxDb={0}
                             widthPx={CANVAS_W} // Logical width
-                            heightPx={41} // <-- FIX: Taller, matching your reference
+                            heightPx={41}
                         />
                     </div>
 

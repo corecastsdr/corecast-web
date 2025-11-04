@@ -1,30 +1,24 @@
 // packages/headless/src/types.ts
 
-/**
- * All configurable client-side DSP parameters
- * that are sent to the server.
- */
+// The demodulator settings
 export interface ClientSettings {
     freq: number;
-    mode: 'wbfm' | 'nbfm' | 'am' | 'usb' | 'lsb';
+    mode: 'wbfm' | 'nbfm' | 'am' | 'lsb' | 'usb';
     bw: number;
     nr: boolean;
     notch: boolean;
     sql: number;
 }
 
-/**
- * Configuration for the waterfall display.
- */
+// The waterfall display settings
 export interface WaterfallSettings {
     min: number;
     max: number;
-    zoom: number; // This was in your sdr.tsx
+    zoom: number;
 }
 
-/**
- * A single audio recording, saved in the browser.
- */
+// ▼▼▼ ADD THIS INTERFACE ▼▼▼
+// Represents a finished recording
 export interface Recording {
     name: string;
     url: string;

@@ -1,12 +1,42 @@
 {
   "name": "@corecast/headless",
   "version": "1.0.0",
-  "description": "",
-  "main": "src/index.ts",
+  "description": "Headless hook for Core Cast",
+  "type": "module",
+
+  "main": "dist/index.js",
+  "module": "dist/index.mjs",
+  "types": "dist/index.d.ts",
+
+  "exports": {
+    ".": {
+      "import": "./dist/index.mjs",
+      "require": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+
+  "files": [
+    "dist"
+  ],
   "scripts": {
+    "build": "tsup src/index.ts --format cjs,esm --dts --clean",
+    "dev": "tsup src/index.ts --format cjs,esm --dts --clean --watch",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [],
   "author": "",
-  "type": "module"
+  "dependencies": {
+    "react": "^18.0.0",
+    "wasm-media-encoders": "^0.7.0"
+  },
+  "devDependencies": {
+    "@types/react": "^19.0.0",
+    "react": "^19.0.0",
+    "tsup": "latest",
+    "typescript": "latest"
+  },
+  "peerDependencies": {
+    "react": ">=18.0.0"
+  }
 }
