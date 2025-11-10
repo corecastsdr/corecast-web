@@ -1,7 +1,7 @@
 // packages/headless/src/useCoreCast.ts
 /* eslint-disable react-hooks/exhaustive-deps */
 import { useState, useRef, useEffect } from 'react';
-import { type ClientSettings, type WaterfallSettings } from './types';
+import { type ClientSettings, type WaterfallSettings } from './types'; // Make sure this path is correct
 
 const RATE = 48_000;
 
@@ -11,7 +11,7 @@ export interface CoreCastOptions {
     initialSpan: { min: number; max: number };
     initialSettings: ClientSettings;
     initialWaterfallSettings: WaterfallSettings;
-    onAudioChunk?: (pcm: Float32Array) => void; // <-- 1. ADD THIS LINE
+    onAudioChunk?: (pcm: Float32Array) => void;
 }
 
 /**
@@ -24,7 +24,7 @@ export function useCoreCast({
     initialSpan,
     initialSettings,
     initialWaterfallSettings,
-    onAudioChunk, // <-- 2. GET THE PROP
+    onAudioChunk,
 }: CoreCastOptions) {
     /* ▼▼▼ Audio ▼▼▼ */
     const [volume, setVolume] = useState(30);
@@ -43,8 +43,15 @@ export function useCoreCast({
     const [latestLine, setLatestLine] = useState<number[]>([]);
 
     /* ▼▼▼ Settings ▼▼▼ */
+    // This useState ONLY runs on the first render, using initialSettings
+    // This is correct.
     const [clientSettings, setClientSettings] = useState<ClientSettings>(initialSettings);
     const [waterfallSettings, setWaterfallSettings] = useState<WaterfallSettings>(initialWaterfallSettings);
+
+    // ▼▼▼ THIS IS THE FIX ▼▼▼
+    // The useEffect that was here, watching [initialSettings],
+    // was the cause of the infinite loop. It has been removed.
+    // ▲▲▲ END OF FIX ▲▲▲
 
     function scheduleBuffer(ctx: AudioContext, pcm: Float32Array) {
         const safePCM = new Float32Array(pcm);
@@ -94,8 +101,10 @@ export function useCoreCast({
 
         ws.onopen = () => {
             setIsPlaying(true);
-            ws.send(JSON.stringify({ type: 'tune', ...clientSettings }));
+            // We do NOT send the tune command here.
+            // sendTune() (called by play()) is responsible for it.
         };
+
         ws.onclose = () => {
             setIsPlaying(false);
             audioWS.current = null;
@@ -106,7 +115,6 @@ export function useCoreCast({
             if (typeof ev.data === 'string') return;
             const pcmF32 = new Float32Array(ev.data);
 
-            // <-- 3. ADD THIS LINE
             if (onAudioChunk) {
                 onAudioChunk(pcmF32);
             }
@@ -130,10 +138,13 @@ export function useCoreCast({
     async function sendTune() {
         openAudioWS();
         if (!audioWS.current) return;
+
         if (audioWS.current.readyState === WebSocket.CONNECTING) {
             await new Promise<void>((res) => audioWS.current!.addEventListener('open', () => res(), { once: true }));
         }
+
         if (audioWS.current.readyState === WebSocket.OPEN) {
+            // Send the *current* internal state
             audioWS.current.send(JSON.stringify({ type: 'tune', ...clientSettings }));
         }
     }
@@ -170,7 +181,6 @@ export function useCoreCast({
         if (!ctxRef.current) ctxRef.current = new AudioContext({ sampleRate: RATE });
         if (ctxRef.current.state === 'suspended') await ctxRef.current.resume();
         ensureGain();
-        openAudioWS();
         await sendTune();
     }
 
@@ -213,14 +223,14 @@ export function useCoreCast({
         audioDb,
         volume,
         span,
-        clientSettings,
+        clientSettings, // Return the hook's internal state
         waterfallSettings,
         latestLine,
         play,
         stop,
         setVolume,
         setSpan,
-        setClientSettings,
+        setClientSettings, // Return the hook's internal setter
         setWaterfallSettings,
     };
 }

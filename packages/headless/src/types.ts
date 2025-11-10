@@ -8,6 +8,9 @@ export interface ClientSettings {
     nr: boolean;
     notch: boolean;
     sql: number;
+
+    user_uuid?: string | null;
+    station_uuid?: string | null;
 }
 
 // The waterfall display settings
