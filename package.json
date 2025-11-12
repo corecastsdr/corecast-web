@@ -1,6 +1,6 @@
 {
   "name": "corecast-web",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "private": true,
   "scripts": {
     "dev": "turbo dev",
@@ -15,9 +15,10 @@
     "turbo": "latest",
     "typescript": "latest"
   },
-  "workspaces": [
+  "_workspaces": [
     "apps/*",
-    "packages/*"
+    "packages/*",
+    "corecastsdr-website"
   ],
   "packageManager": "npm@11.2.0"
 }

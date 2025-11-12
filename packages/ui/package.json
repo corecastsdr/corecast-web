@@ -1,6 +1,6 @@
 {
   "name": "@corecast/ui",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Core Cast SDR component library",
   "type": "module",
   "main": "dist/index.js",
