@@ -1,12 +1,8 @@
 {
   "name": "corecast-web",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "private": true,
   "scripts": {
-    "dev": "turbo dev",
-    "build": "turbo build",
-    "lint": "turbo lint",
-    "test": "turbo test",
     "release": "turbo run build && changeset version && changeset publish"
   },
   "devDependencies": {
