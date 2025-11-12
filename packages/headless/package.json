@@ -3,11 +3,9 @@
   "version": "1.0.0",
   "description": "Headless hook for Core Cast",
   "type": "module",
-
   "main": "dist/index.js",
   "module": "dist/index.mjs",
   "types": "dist/index.d.ts",
-
   "exports": {
     ".": {
       "import": "./dist/index.mjs",
@@ -15,7 +13,6 @@
       "types": "./dist/index.d.ts"
     }
   },
-
   "files": [
     "dist"
   ],
@@ -24,15 +21,33 @@
     "dev": "tsup src/index.ts --format cjs,esm --dts --clean --watch",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
-  "keywords": [],
-  "author": "",
+  "keywords": [
+    "corecast",
+    "sdr",
+    "headless",
+    "react",
+    "hook"
+  ],
+  "author": {
+    "name": "Core Cast",
+    "url": "https://corecastsdr.com"
+  },
+  "license": "PolyForm-Noncommercial-1.0.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/corecastsdr/corecast-web.git",
+    "directory": "packages/headless"
+  },
+  "homepage": "https://github.com/corecastsdr/corecast-web#readme",
+  "bugs": {
+    "url": "https://github.com/corecastsdr/corecast-web/issues"
+  },
   "dependencies": {
     "react": "^18.0.0",
     "wasm-media-encoders": "^0.7.0"
   },
   "devDependencies": {
     "@types/react": "^19.0.0",
-    "react": "^19.0.0",
     "tsup": "latest",
     "typescript": "latest"
   },

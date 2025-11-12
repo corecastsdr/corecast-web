@@ -3,11 +3,9 @@
   "version": "0.1.0",
   "description": "Core Cast SDR component library",
   "type": "module",
-
   "main": "dist/index.js",
   "module": "dist/index.mjs",
   "types": "dist/index.d.ts",
-
   "exports": {
     ".": {
       "import": "./dist/index.mjs",
@@ -15,7 +13,6 @@
       "types": "./dist/index.d.ts"
     }
   },
-
   "files": [
     "dist"
   ],
@@ -24,12 +21,32 @@
     "dev": "tsup src/index.ts --format cjs,esm --dts --clean --watch",
     "lint": "echo \"Linting @corecast/ui...\""
   },
+  "keywords": [
+    "corecast",
+    "sdr",
+    "ui",
+    "react",
+    "components"
+  ],
+  "author": {
+    "name": "Core Cast",
+    "url": "https://corecastsdr.com"
+  },
+  "license": "PolyForm-Noncommercial-1.0.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/corecastsdr/corecast-web.git",
+    "directory": "packages/ui"
+  },
+  "homepage": "https://github.com/corecastsdr/corecast-web#readme",
+  "bugs": {
+    "url": "https://github.com/corecastsdr/corecast-web/issues"
+  },
   "dependencies": {
     "react": "^18.0.0"
   },
   "devDependencies": {
     "@types/react": "^19.2.2",
-    "react": "^19.2.0",
     "tsup": "latest",
     "typescript": "latest"
   },
