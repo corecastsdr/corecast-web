@@ -1,5 +1,11 @@
 # corecast-web
 
+## 1.1.0
+
+### Minor Changes
+
+- fixed sys links
+
 ## 1.0.3
 
 ### Patch Changes
