@@ -1,5 +1,11 @@
 # corecast-web
 
+## 1.1.1
+
+### Patch Changes
+
+- Forcing new release
+
 ## 1.1.0
 
 ### Minor Changes
