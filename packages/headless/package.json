@@ -1,10 +1,6 @@
 {
   "name": "@corecast/headless",
-<<<<<<< HEAD
-  "version": "3.0.0",
-=======
   "version": "2.0.2",
->>>>>>> 73856e0c8698f0a5f858bc70a9d2618768cf255a
   "description": "Headless hook for Core Cast",
   "type": "module",
   "main": "dist/index.js",
