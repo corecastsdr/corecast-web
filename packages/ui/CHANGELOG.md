@@ -1,5 +1,11 @@
 # @corecast/ui
 
+## 2.0.0
+
+### Major Changes
+
+- fixed sys links
+
 ## 1.0.0
 
 ### Major Changes

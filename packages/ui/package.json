@@ -1,6 +1,6 @@
 {
   "name": "@corecast/ui",
-  "version": "1.0.1",
+  "version": "2.0.0",
   "description": "Core Cast SDR component library",
   "type": "module",
   "main": "dist/index.js",
@@ -54,6 +54,6 @@
     "react": ">=18.0.0"
   },
   "publishConfig": {
-  "registry": "https://npm.pkg.github.com"
-}
+    "registry": "https://npm.pkg.github.com"
+  }
 }

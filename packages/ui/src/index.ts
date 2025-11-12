@@ -1,4 +1,5 @@
 // packages/ui/src/index.ts
+// force change
 import PSDChart from './PSDChart';
 import Waterfall from './Waterfall';
 import FrequencyScale from './FrequencyScale'; // <-- ADD THIS
