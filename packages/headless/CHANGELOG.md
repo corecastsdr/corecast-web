@@ -4,6 +4,12 @@
 
 ### Major Changes
 
+- changed exports
+
+## 3.0.0
+
+### Major Changes
+
 - fixed sys links
 
 ## 2.0.0

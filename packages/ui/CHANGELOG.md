@@ -1,5 +1,11 @@
 # @corecast/ui
 
+## 3.0.0
+
+### Major Changes
+
+- changed exports
+
 ## 2.0.0
 
 ### Major Changes
