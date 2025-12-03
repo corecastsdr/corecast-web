@@ -1,5 +1,11 @@
 # @corecast/headless
 
+## 4.0.0
+
+### Major Changes
+
+- feat(headless): optimize useCoreCast hook for performance and fix types
+
 ## 3.0.0
 
 ### Major Changes
