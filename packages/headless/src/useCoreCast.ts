@@ -1,7 +1,7 @@
 // packages/headless/src/useCoreCast.ts
 /* eslint-disable react-hooks/exhaustive-deps */
-import { useState, useRef, useEffect } from 'react';
-import { type ClientSettings, type WaterfallSettings } from './types'; // Make sure this path is correct
+import { useState, useRef, useEffect, useCallback } from 'react';
+import { type ClientSettings, type WaterfallSettings } from './types';
 
 const RATE = 48_000;
 
@@ -14,10 +14,6 @@ export interface CoreCastOptions {
     onAudioChunk?: (pcm: Float32Array) => void;
 }
 
-/**
- * The main headless hook for the Core Cast SDR client.
- * Manages WebSockets, AudioContext, and state.
- */
 export function useCoreCast({
     audioUrl,
     waterfallUrl,
@@ -26,211 +22,244 @@ export function useCoreCast({
     initialWaterfallSettings,
     onAudioChunk,
 }: CoreCastOptions) {
-    /* ▼▼▼ Audio ▼▼▼ */
+    // --- State ---
     const [volume, setVolume] = useState(30);
     const [audioDb, setAudioDb] = useState(-120);
     const [isPlaying, setIsPlaying] = useState(false);
+    const [span, setSpan] = useState(initialSpan);
+    const [latestLine, setLatestLine] = useState<number[]>([]);
+    const [clientSettings, setClientSettings] = useState<ClientSettings>(initialSettings);
+    const [waterfallSettings, setWaterfallSettings] = useState<WaterfallSettings>(initialWaterfallSettings);
 
-    /* ▼▼▼ Audio Context ▼▼▼ */
+    // --- Refs ---
     const audioWS = useRef<WebSocket | null>(null);
+    const wfWS = useRef<WebSocket | null>(null);
     const ctxRef = useRef<AudioContext | null>(null);
     const gainRef = useRef<GainNode | null>(null);
     const timelineRef = useRef(0);
 
-    /* ▼▼▼ Waterfall / Span ▼▼▼ */
-    const wfWS = useRef<WebSocket | null>(null);
-    const [span, setSpan] = useState(initialSpan);
-    const [latestLine, setLatestLine] = useState<number[]>([]);
+    // Performance optimization refs
+    const lastDbUpdateRef = useRef(0);
+    const audioLevelRef = useRef(-120);
+    const queueRef = useRef<Float32Array[]>([]);
+    const isPumpRunningRef = useRef(false);
 
-    /* ▼▼▼ Settings ▼▼▼ */
-    // This useState ONLY runs on the first render, using initialSettings
-    // This is correct.
-    const [clientSettings, setClientSettings] = useState<ClientSettings>(initialSettings);
-    const [waterfallSettings, setWaterfallSettings] = useState<WaterfallSettings>(initialWaterfallSettings);
+    // --- Audio Scheduling ---
+    // Note: We use 'any' for pcm here to bypass the strict ArrayBuffer vs SharedArrayBuffer check
+    const scheduleBuffer = useCallback((ctx: AudioContext, pcm: any) => {
+        const buf = ctx.createBuffer(1, pcm.length, RATE);
 
-    // ▼▼▼ THIS IS THE FIX ▼▼▼
-    // The useEffect that was here, watching [initialSettings],
-    // was the cause of the infinite loop. It has been removed.
-    // ▲▲▲ END OF FIX ▲▲▲
+        // ▼▼▼ FIX 1: Cast to any to bypass strict buffer type check ▼▼▼
+        buf.copyToChannel(pcm as any, 0);
 
-    function scheduleBuffer(ctx: AudioContext, pcm: Float32Array) {
-        const safePCM = new Float32Array(pcm);
-        const buf = ctx.createBuffer(1, safePCM.length, RATE);
-        buf.copyToChannel(safePCM, 0);
         const src = ctx.createBufferSource();
         src.buffer = buf;
+
         if (gainRef.current) {
             src.connect(gainRef.current);
         } else {
             src.connect(ctx.destination);
         }
-        if (timelineRef.current < ctx.currentTime) timelineRef.current = ctx.currentTime + 0;
-        src.start(timelineRef.current);
-        timelineRef.current += safePCM.length / RATE;
-    }
 
-    function ensureGain() {
-        const ctx = ctxRef.current!;
-        if (!gainRef.current) {
-            gainRef.current = ctx.createGain();
-            gainRef.current.gain.value = volume / 100;
-            gainRef.current.connect(ctx.destination);
+        // Ensure we schedule in the future
+        if (timelineRef.current < ctx.currentTime) {
+            timelineRef.current = ctx.currentTime + 0.05; // Small buffer
         }
-    }
 
-    /* ── AUDIO WebSocket ────────────────────────────────── */
-    function openAudioWS() {
+        src.start(timelineRef.current);
+        timelineRef.current += pcm.length / RATE;
+    }, []);
+
+    // --- Main Audio Pump Loop ---
+    const pumpAudio = useCallback(() => {
+        const ctx = ctxRef.current;
+        if (!ctx || ctx.state !== 'running') {
+            isPumpRunningRef.current = false;
+            return;
+        }
+
+        const GUARD_SEC = 0.2;
+        const queue = queueRef.current;
+
+        // Schedule chunks until we are sufficiently buffered ahead
+        while (queue.length > 0 && timelineRef.current - ctx.currentTime < GUARD_SEC) {
+            const chunk = queue.shift();
+            // ▼▼▼ FIX 2: Pass chunk directly (scheduleBuffer now accepts 'any') ▼▼▼
+            if (chunk) scheduleBuffer(ctx, chunk);
+        }
+
+        if (queue.length > 0 || isPlaying) {
+            isPumpRunningRef.current = true;
+            requestAnimationFrame(pumpAudio);
+        } else {
+            isPumpRunningRef.current = false;
+        }
+    }, [isPlaying, scheduleBuffer]);
+
+    // --- Audio WebSocket Handler ---
+    const connectAudio = useCallback(() => {
         if (audioWS.current) return;
+
         const ws = new WebSocket(audioUrl);
         ws.binaryType = 'arraybuffer';
-
-        const PREBUF_SEC = 0.4;
-        const GUARD_SEC = 0.2;
-        const queue: Float32Array[] = [];
-        let pumpOn = false;
-        let levelSmooth = -120;
-
-        function pump() {
-            const ctx = ctxRef.current;
-            if (!ctx || ctx.state !== 'running') return;
-            while (queue.length && timelineRef.current - ctx.currentTime < GUARD_SEC - 0.005) {
-                scheduleBuffer(ctx, queue.shift()!);
-            }
-            requestAnimationFrame(pump);
-        }
+        audioWS.current = ws;
 
         ws.onopen = () => {
             setIsPlaying(true);
-            // We do NOT send the tune command here.
-            // sendTune() (called by play()) is responsible for it.
+            // Send initial tuning
+            if (ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({ type: 'tune', ...clientSettings }));
+            }
         };
 
         ws.onclose = () => {
             setIsPlaying(false);
             audioWS.current = null;
         };
-        ws.onerror = (e) => console.error('audio WS error', e);
+
+        ws.onerror = (e) => console.error('Audio WS error', e);
 
         ws.onmessage = (ev) => {
             if (typeof ev.data === 'string') return;
+
             const pcmF32 = new Float32Array(ev.data);
 
-            if (onAudioChunk) {
-                onAudioChunk(pcmF32);
+            // External callback hook
+            if (onAudioChunk) onAudioChunk(pcmF32);
+
+            // Add to playback queue
+            queueRef.current.push(pcmF32);
+
+            // --- Optimized Level Calculation ---
+            // Process every 4th sample to save CPU (plenty accurate for visual meter)
+            let sum = 0;
+            const len = pcmF32.length;
+            for (let i = 0; i < len; i += 4) {
+                sum += pcmF32[i] * pcmF32[i];
+            }
+            // Adjust calculation since we only summed 1/4th of samples
+            const rms = Math.sqrt(sum / (len / 4));
+            const db = 20 * Math.log10(rms + 1e-7); // Standard dBFS calc
+
+            // Smooth the value
+            audioLevelRef.current = audioLevelRef.current * 0.8 + db * 0.2;
+
+            // --- THROTTLE REACT UPDATES (Max 30fps) ---
+            const now = Date.now();
+            if (now - lastDbUpdateRef.current > 33) {
+                setAudioDb(audioLevelRef.current);
+                lastDbUpdateRef.current = now;
             }
 
-            queue.push(pcmF32);
-
-            let sum = 0;
-            for (let i = 0; i < pcmF32.length; i++) sum += pcmF32[i] * pcmF32[i];
-            const db = 10 * Math.log10(sum / pcmF32.length + 1e-12);
-            levelSmooth = levelSmooth * 0.9 + db * 0.1;
-            setAudioDb(levelSmooth);
-
-            if (!pumpOn && queue.length * 0.02 >= PREBUF_SEC) {
-                pumpOn = true;
-                pump();
+            // Start pump if needed
+            if (!isPumpRunningRef.current && queueRef.current.length > 5) {
+                pumpAudio();
             }
         };
-        audioWS.current = ws;
-    }
+    }, [audioUrl, clientSettings, onAudioChunk, pumpAudio]);
 
-    async function sendTune() {
-        openAudioWS();
-        if (!audioWS.current) return;
-
-        if (audioWS.current.readyState === WebSocket.CONNECTING) {
-            await new Promise<void>((res) => audioWS.current!.addEventListener('open', () => res(), { once: true }));
+    // --- Waterfall WebSocket Handler ---
+    useEffect(() => {
+        if (wfWS.current) {
+            wfWS.current.close();
         }
 
-        if (audioWS.current.readyState === WebSocket.OPEN) {
-            // Send the *current* internal state
-            audioWS.current.send(JSON.stringify({ type: 'tune', ...clientSettings }));
-        }
-    }
-
-    /* ── WATERFALL WebSocket ───────────────────────────── */
-    function openWfWS() {
-        if (wfWS.current) return;
         const ws = new WebSocket(waterfallUrl);
         wfWS.current = ws;
 
+        ws.onopen = () => {
+            // Send initial span
+            ws.send(JSON.stringify({ type: 'span', min: span.min, max: span.max }));
+        };
+
         ws.onmessage = (ev) => {
-            const pkt = JSON.parse(ev.data);
-            if (pkt.type === 'waterfall') {
-                setLatestLine(pkt.data);
+            try {
+                const pkt = JSON.parse(ev.data);
+                if (pkt.type === 'waterfall' && Array.isArray(pkt.data)) {
+                    setLatestLine(pkt.data);
+                }
+            } catch (e) {
+                console.error("WF Parse Error", e);
             }
         };
-        ws.onclose = () => { wfWS.current = null; };
-        ws.onerror = (e) => console.error('wf WS error', e);
-    }
 
-    async function sendSpan() {
-        openWfWS();
-        if (!wfWS.current) return;
-        if (wfWS.current.readyState === WebSocket.CONNECTING) {
-            await new Promise<void>((res) => wfWS.current!.addEventListener('open', () => res(), { once: true }));
-        }
-        if (wfWS.current.readyState === WebSocket.OPEN) {
-            wfWS.current.send(JSON.stringify({ type: 'span', min: span.min, max: span.max }));
-        }
-    }
+        return () => {
+            ws.close();
+            wfWS.current = null;
+        };
+    }, [waterfallUrl]); // Re-connect only if URL changes
 
-    /* ── Public Actions (Play/Stop) ────────────────────── */
-    async function play() {
-        if (!ctxRef.current) ctxRef.current = new AudioContext({ sampleRate: RATE });
-        if (ctxRef.current.state === 'suspended') await ctxRef.current.resume();
-        ensureGain();
-        await sendTune();
-    }
-
-    function stop() {
-        audioWS.current?.close();
-        audioWS.current = null;
-        setIsPlaying(false);
-        ctxRef.current?.close();
-        ctxRef.current = null;
-        timelineRef.current = 0;
-    }
-
-    /* ── Effects to Sync State ─────────────────────────── */
+    // --- Span Update Sender ---
     useEffect(() => {
-        if (isPlaying) {
-            sendTune();
+        const ws = wfWS.current;
+        if (ws && ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({ type: 'span', min: span.min, max: span.max }));
         }
-    }, [clientSettings, isPlaying]);
-
-    useEffect(() => {
-        sendSpan();
     }, [span]);
 
+    // --- Tune Update Sender ---
+    useEffect(() => {
+        const ws = audioWS.current;
+        if (ws && ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({ type: 'tune', ...clientSettings }));
+        }
+    }, [clientSettings]);
+
+    // --- Volume Control ---
     useEffect(() => {
         if (gainRef.current) {
-            gainRef.current.gain.value = volume / 100;
+            // Use exponential ramp for smoother volume changes
+            const now = ctxRef.current?.currentTime || 0;
+            // Clamp value to prevent errors (0.01 to 1.0)
+            const vol = Math.max(0.001, volume / 100);
+            gainRef.current.gain.setTargetAtTime(vol, now, 0.1);
         }
     }, [volume]);
 
-    useEffect(() => {
-        openWfWS();
-        return () => {
-            wfWS.current?.close();
-        };
-    }, [waterfallUrl]);
+    // --- Public API ---
+    const play = useCallback(async () => {
+        if (!ctxRef.current) {
+            ctxRef.current = new AudioContext({ sampleRate: RATE, latencyHint: 'interactive' });
+        }
+        if (ctxRef.current.state === 'suspended') {
+            await ctxRef.current.resume();
+        }
 
-    // --- Return the Public API ---
+        if (!gainRef.current) {
+            gainRef.current = ctxRef.current.createGain();
+            gainRef.current.gain.value = volume / 100;
+            gainRef.current.connect(ctxRef.current.destination);
+        }
+
+        connectAudio();
+    }, [connectAudio, volume]);
+
+    const stop = useCallback(() => {
+        if (audioWS.current) {
+            audioWS.current.close();
+            audioWS.current = null;
+        }
+        if (ctxRef.current) {
+            ctxRef.current.suspend();
+        }
+        setIsPlaying(false);
+        queueRef.current = [];
+        timelineRef.current = 0;
+    }, []);
+
     return {
         isPlaying,
         audioDb,
         volume,
         span,
-        clientSettings, // Return the hook's internal state
+        clientSettings,
         waterfallSettings,
         latestLine,
         play,
         stop,
         setVolume,
         setSpan,
-        setClientSettings, // Return the hook's internal setter
+        setClientSettings,
         setWaterfallSettings,
     };
 }
